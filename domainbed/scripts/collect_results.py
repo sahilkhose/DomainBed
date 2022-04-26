@@ -166,11 +166,16 @@ if __name__ == "__main__":
     else:
         print("Total records:", len(records))
 
-    SELECTION_METHODS = [
-        model_selection.IIDAccuracySelectionMethod,
-        model_selection.LeaveOneOutSelectionMethod,
-        model_selection.OracleSelectionMethod,
-    ]
+    if records and records[0]["args"].get("val_envs", False):
+        SELECTION_METHODS = [
+            model_selection.OODValidationSelectionMethod,
+        ]
+    else:
+        SELECTION_METHODS = [
+            model_selection.IIDAccuracySelectionMethod,
+            model_selection.LeaveOneOutSelectionMethod,
+            model_selection.OracleSelectionMethod,
+        ]
 
     for selection_method in SELECTION_METHODS:
         if args.latex:

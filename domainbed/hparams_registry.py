@@ -12,7 +12,7 @@ def _hparams(algorithm, dataset, random_seed):
     Global registry of hyperparams. Each entry is a (default, random) tuple.
     New algorithms / networks / etc. should add entries here.
     """
-    SMALL_IMAGES = ['Debug28', 'RotatedMNIST', 'ColoredMNIST']
+    SMALL_IMAGES = ['Debug28', 'RotatedMNIST', 'ColoredMNIST', 'ColoredMNIST_IRM']
 
     hparams = {}
 
@@ -31,6 +31,8 @@ def _hparams(algorithm, dataset, random_seed):
     _hparam('resnet18', False, lambda r: False)
     _hparam('resnet_dropout', 0., lambda r: r.choice([0., 0.1, 0.5]))
     _hparam('class_balanced', False, lambda r: False)
+    _hparam('freeze_resnet_bn', True, lambda r: True)
+    _hparam('pretrained', True, lambda r: True)
     # TODO: nonlinear classifiers disabled
     _hparam('nonlinear_classifier', False,
             lambda r: bool(r.choice([False, False])))
@@ -126,6 +128,14 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('is_project', False, lambda r: False)
         _hparam('is_flipped', True, lambda r: True)
 
+    elif algorithm =='ERDG':
+        _hparam('lr_d', 5e-5, lambda r: 10**r.uniform(-5, -3.5))
+        _hparam('lr_c', 5e-6, lambda r: 10**r.uniform(-6, -4.5))
+        _hparam('lr_cp', 5e-6, lambda r: 10**r.uniform(-6, -4.5))
+        _hparam('lbd_c', 0.05, lambda r: 10**r.uniform(-3, -1))
+        _hparam('lbd_cp', 0.01, lambda r: 10**r.uniform(-4, -1))
+        _hparam('lbd_d', 0.5, lambda r: 10**r.uniform(-2, 0))
+
     # Dataset-and-algorithm-specific hparam definitions. Each block of code
     # below corresponds to exactly one hparam. Avoid nested conditionals.
 
@@ -145,6 +155,8 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('batch_size', 8, lambda r: 8)
     elif dataset == 'DomainNet':
         _hparam('batch_size', 32, lambda r: int(2**r.uniform(3, 5)))
+    elif dataset == 'CelebA_Blond':
+        _hparam('batch_size', 48, lambda r: int(2**r.uniform(4.5, 6)))
     else:
         _hparam('batch_size', 32, lambda r: int(2**r.uniform(3, 5.5)))
 
@@ -162,6 +174,11 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('weight_decay_g', 0., lambda r: 0.)
     elif algorithm in ['DANN', 'CDANN']:
         _hparam('weight_decay_g', 0., lambda r: 10**r.uniform(-6, -2))
+
+    if algorithm == 'IRM' and dataset == 'CelebA_Blond':
+        _hparam('irm_penalty_anneal_iters', 500, lambda r: int(10**r.uniform(0, 3.5)))
+    elif algorithm == 'VREx' and dataset == 'CelebA_Blond':
+        _hparam('vrex_penalty_anneal_iters', 500, lambda r: int(10**r.uniform(0, 3.5)))
 
     return hparams
 

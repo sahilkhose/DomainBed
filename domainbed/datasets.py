@@ -1,11 +1,15 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 
+import csv
 import os
+from pathlib import Path
+
+import numpy as np
 import torch
 from PIL import Image, ImageFile
 from torchvision import transforms
 import torchvision.datasets.folder
-from torch.utils.data import TensorDataset, Subset
+from torch.utils.data import Dataset, TensorDataset
 from torchvision.datasets import MNIST, ImageFolder
 from torchvision.transforms.functional import rotate
 
@@ -31,7 +35,15 @@ DATASETS = [
     # WILDS datasets
     "WILDSCamelyon",
     "WILDSFMoW"
+] + [
+    'ColoredMNIST_IRM',
+    'CelebA_Blond',
+    'NICO_Mixed',
+    'ImageNet_A',
+    'ImageNet_R',
+    'ImageNet_V2',
 ]
+
 
 def get_dataset_class(dataset_name):
     """Return the dataset class with the given name."""
@@ -42,6 +54,41 @@ def get_dataset_class(dataset_name):
 
 def num_environments(dataset_name):
     return len(get_dataset_class(dataset_name).ENVIRONMENTS)
+
+
+def get_normalize():
+    return transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+
+
+def get_transform(input_size=224):
+    return transforms.Compose([
+        transforms.Resize((input_size, input_size)),
+        transforms.ToTensor(),
+        get_normalize(),
+    ])
+
+
+def get_augment_transform(scheme_name='default', input_size=224):
+    schemes = {}
+    schemes['default'] = transforms.Compose([
+        transforms.RandomResizedCrop(input_size, scale=(0.7, 1.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(0.3, 0.3, 0.3, 0.3),
+        transforms.RandomGrayscale(),
+        transforms.ToTensor(),
+        get_normalize(),
+    ])
+    schemes['jigen'] = transforms.Compose([
+        transforms.RandomResizedCrop(input_size, scale=(0.8, 1.0)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(0.4, 0.4, 0.4, 0.4),
+        transforms.RandomGrayscale(),
+        transforms.ToTensor(),
+        get_normalize(),
+    ])
+    if scheme_name not in schemes:
+        raise KeyError(f'no such data augmentation scheme: {scheme_name}')
+    return schemes[scheme_name]
 
 
 class MultipleDomainDataset:
@@ -81,6 +128,64 @@ class Debug224(Debug):
     ENVIRONMENTS = ['0', '1', '2']
 
 
+class ColoredMNIST_IRM(MultipleDomainDataset):
+    CHECKPOINT_FREQ = 500
+    ENVIRONMENTS = ['+90%', '+80%', '-90%']
+    def __init__(self, root, test_envs, hparams):
+        if 'data_augmentation_scheme' in hparams:
+            raise NotImplementedError
+        super().__init__()
+        original_dataset_tr = MNIST(root, train=True, download=True)
+
+        original_images = original_dataset_tr.data
+        original_labels = original_dataset_tr.targets
+
+        shuffle = torch.randperm(len(original_images))
+        original_images = original_images[shuffle]
+        original_labels = original_labels[shuffle]
+
+        self.datasets = []
+        for i, env in enumerate([0.1, 0.2]):
+            images = original_images[:50000][i::2]
+            labels = original_labels[:50000][i::2]
+            self.datasets.append(self.color_dataset(images, labels, env))
+        images = original_images[50000:]
+        labels = original_labels[50000:]
+        self.datasets.append(self.color_dataset(images, labels, 0.9))
+
+        self.input_shape = (2, 14, 14)
+        self.num_classes = 2
+
+    def color_dataset(self, images, labels, environment):
+        # Subsample 2x for computational convenience
+        images = images.reshape((-1, 28, 28))[:, ::2, ::2]
+        # Assign a binary label based on the digit
+        labels = (labels < 5).float()
+        # Flip label with probability 0.25
+        labels = self.torch_xor_(labels,
+                                 self.torch_bernoulli_(0.25, len(labels)))
+
+        # Assign a color based on the label; flip the color with probability e
+        colors = self.torch_xor_(labels,
+                                 self.torch_bernoulli_(environment,
+                                                       len(labels)))
+        images = torch.stack([images, images], dim=1)
+        # Apply the color to the image by zeroing out the other color channel
+        images[torch.tensor(range(len(images))), (
+            1 - colors).long(), :, :] *= 0
+
+        x = images.float().div_(255.0)
+        y = labels.view(-1).long()
+
+        return TensorDataset(x, y)
+
+    def torch_bernoulli_(self, p, size):
+        return (torch.rand(size) < p).float()
+
+    def torch_xor_(self, a, b):
+        return (a - b).abs()
+
+
 class MultipleEnvironmentMNIST(MultipleDomainDataset):
     def __init__(self, root, environments, dataset_transform, input_shape,
                  num_classes):
@@ -117,6 +222,8 @@ class ColoredMNIST(MultipleEnvironmentMNIST):
     ENVIRONMENTS = ['+90%', '+80%', '-90%']
 
     def __init__(self, root, test_envs, hparams):
+        if 'data_augmentation_scheme' in hparams:
+            raise NotImplementedError
         super(ColoredMNIST, self).__init__(root, [0.1, 0.2, 0.9],
                                          self.color_dataset, (2, 28, 28,), 2)
 
@@ -157,6 +264,8 @@ class RotatedMNIST(MultipleEnvironmentMNIST):
     ENVIRONMENTS = ['0', '15', '30', '45', '60', '75']
 
     def __init__(self, root, test_envs, hparams):
+        if 'data_augmentation_scheme' in hparams:
+            raise NotImplementedError
         super(RotatedMNIST, self).__init__(root, [0, 15, 30, 45, 60, 75],
                                            self.rotate_dataset, (1, 28, 28,), 10)
 
@@ -182,23 +291,9 @@ class MultipleEnvironmentImageFolder(MultipleDomainDataset):
         environments = [f.name for f in os.scandir(root) if f.is_dir()]
         environments = sorted(environments)
 
-        transform = transforms.Compose([
-            transforms.Resize((224,224)),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-
-        augment_transform = transforms.Compose([
-            # transforms.Resize((224,224)),
-            transforms.RandomResizedCrop(224, scale=(0.7, 1.0)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ColorJitter(0.3, 0.3, 0.3, 0.3),
-            transforms.RandomGrayscale(),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
+        transform = get_transform()
+        augment_scheme = hparams.get('data_augmentation_scheme', 'default')
+        augment_transform = get_augment_transform(augment_scheme)
 
         self.datasets = []
         for i, environment in enumerate(environments):
@@ -297,23 +392,9 @@ class WILDSDataset(MultipleDomainDataset):
     def __init__(self, dataset, metadata_name, test_envs, augment, hparams):
         super().__init__()
 
-        transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-
-        augment_transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.RandomResizedCrop(224, scale=(0.7, 1.0)),
-            transforms.RandomHorizontalFlip(),
-            transforms.ColorJitter(0.3, 0.3, 0.3, 0.3),
-            transforms.RandomGrayscale(),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
+        transform = get_transform()
+        augment_scheme = hparams.get('data_augmentation_scheme', 'default')
+        augment_transform = get_augment_transform(augment_scheme)
 
         self.datasets = []
 
@@ -339,12 +420,20 @@ class WILDSDataset(MultipleDomainDataset):
 
 
 class WILDSCamelyon(WILDSDataset):
+    CHECKPOINT_FREQ = 1000
     ENVIRONMENTS = [ "hospital_0", "hospital_1", "hospital_2", "hospital_3",
             "hospital_4"]
     def __init__(self, root, test_envs, hparams):
         dataset = Camelyon17Dataset(root_dir=root)
         super().__init__(
             dataset, "hospital", test_envs, hparams['data_augmentation'], hparams)
+        for dataset in self.datasets:
+            if not hasattr(dataset, 'samples'):
+                image_files = [dataset.dataset._input_array[i] for i in dataset.indices]
+                labels = dataset.dataset.y_array[dataset.indices].tolist()
+                setattr(dataset, 'samples', list(zip(image_files, labels)))
+            else:
+                raise Exception
 
 
 class WILDSFMoW(WILDSDataset):
@@ -354,4 +443,172 @@ class WILDSFMoW(WILDSDataset):
         dataset = FMoWDataset(root_dir=root)
         super().__init__(
             dataset, "region", test_envs, hparams['data_augmentation'], hparams)
+        for dataset in self.datasets:
+            if not hasattr(dataset, 'samples'):
+                image_files = [dataset.dataset.full_idxs[i] for i in dataset.indices]
+                labels = dataset.dataset.y_array[dataset.indices].tolist()
+                setattr(dataset, 'samples', list(zip(image_files, labels)))
+            else:
+                raise Exception
 
+
+class CelebA_Environment(Dataset):
+    def __init__(self, target_attribute_id, split_csv, img_dir, transform=None):
+        self.img_dir = img_dir
+        self.transform = transform
+        file_names = []
+        attributes = []
+        with open(split_csv) as f:
+            reader = csv.reader(f)
+            next(reader)  # discard header
+            for row in reader:
+                file_names.append(row[0])
+                attributes.append(np.array(row[1:], dtype=int))
+        attributes = np.stack(attributes, axis=0)
+        self.samples = list(zip(file_names, list(attributes[:, target_attribute_id])))
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, index):
+        file_name, label = self.samples[index]
+        image = Image.open(Path(self.img_dir, file_name))
+        if self.transform:
+            image = self.transform(image)
+        label = torch.tensor(label)
+        return image, label
+
+
+class CelebA_Blond(MultipleDomainDataset):
+    CHECKPOINT_FREQ = 200
+    ENVIRONMENTS = ['tr_env1', 'tr_env2', 'te_env']
+    TARGET_ATTRIBUTE_ID = 9
+    def __init__(self, root, test_envs, hparams):
+        super().__init__()
+        if 'data_augmentation_scheme' in hparams:
+            raise NotImplementedError(
+                'CelebA_Blond has its own data augmentation scheme')
+
+        transform = transforms.Compose([
+            transforms.CenterCrop(178),  # crop the face at the center, no stretching
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            get_normalize(),
+        ])
+
+        augment_transform = transforms.Compose([
+            transforms.RandomResizedCrop((224, 224), scale=(0.7, 1.0),
+                                         ratio=(1.0, 1.3333333333333333)),
+            transforms.ColorJitter(0.3, 0.3, 0.3, 0.0),  # do not alter hue
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            get_normalize(),
+        ])
+
+        img_dir = Path(root, 'celeba', 'img_align_celeba')
+        self.datasets = []
+        for i, env_name in enumerate(self.ENVIRONMENTS):
+            if hparams['data_augmentation'] and (i not in test_envs):
+                env_transform = augment_transform
+            else:
+                env_transform = transform
+            split_csv = Path(root, 'celeba', 'blond_split', f'{env_name}.csv')
+            dataset = CelebA_Environment(self.TARGET_ATTRIBUTE_ID, split_csv, img_dir,
+                                         env_transform)
+            self.datasets.append(dataset)
+
+        self.input_shape = (3, 224, 224,)
+        self.num_classes = 2  # blond or not
+
+
+class NICO_Mixed_Environment(Dataset):
+    def __init__(self, split_csv, img_root_dir, transform=None):
+        self.transform = transform
+        self.samples = []
+        with open(split_csv) as f:
+            reader = csv.reader(f)
+            for img_path, category_name, context_name, superclass in reader:
+                img_path = img_path.replace('\\', '/')
+                img_path = Path(img_root_dir, superclass, 'images', img_path)
+                self.samples.append((img_path, {'animal': 0, 'vehicle': 1}[superclass]))
+
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, index):
+        img_path, label = self.samples[index]
+        image = Image.open(img_path).convert('RGB')
+        if self.transform:
+            image = self.transform(image)
+        label = torch.tensor(label)
+        return image, label
+
+
+class NICO_Mixed(MultipleDomainDataset):
+    CHECKPOINT_FREQ = 200
+    ENVIRONMENTS = ['train1', 'train2', 'val', 'test']
+    def __init__(self, root, test_envs, hparams):
+        super().__init__()
+
+        transform = get_transform()
+        augment_scheme = hparams.get('data_augmentation_scheme', 'default')
+        augment_transform = get_augment_transform(augment_scheme)
+
+        self.datasets = []
+        for i, env_name in enumerate(self.ENVIRONMENTS):
+            if hparams['data_augmentation'] and (i not in test_envs):
+                env_transform = augment_transform
+            else:
+                env_transform = transform
+            split_csv = Path(root, 'NICO', 'mixed_split_corrected',
+                             f'env_{env_name}.csv')
+            dataset = NICO_Mixed_Environment(split_csv, Path(root, 'NICO'),
+                                             env_transform)
+            self.datasets.append(dataset)
+
+        self.input_shape = (3, 224, 224,)
+        self.num_classes = 2  # animal or vehicle
+
+
+class ImageNetVariant(MultipleDomainDataset):
+    def __init__(self, root, environments, test_envs, augment, hparams):
+        super().__init__()
+
+        transform = get_transform()
+        augment_scheme = hparams.get('data_augmentation_scheme', 'default')
+        augment_transform = get_augment_transform(augment_scheme)
+
+        self.datasets = []
+        for i, environment in enumerate(environments):
+            if augment and (i not in test_envs):
+                env_transform = augment_transform
+            else:
+                env_transform = transform
+            path = Path(root, environment)
+            env_dataset = ImageFolder(path, transform=env_transform)
+            self.datasets.append(env_dataset)
+
+        self.input_shape = (3, 224, 224,)
+        self.num_classes = len(self.datasets[-1].classes)
+
+
+class ImageNet_A(ImageNetVariant):
+    ENVIRONMENTS = ['imagenet_train', 'imagenet_a']
+    def __init__(self, root, test_envs, hparams):
+        super().__init__(root, ['imagenet-subset-a200/train', 'imagenet-a'],
+                         test_envs, hparams['data_augmentation'], hparams)
+
+
+class ImageNet_R(ImageNetVariant):
+    ENVIRONMENTS = ['imagenet_train', 'imagenet_r']
+    def __init__(self, root, test_envs, hparams):
+        super().__init__(root, ['imagenet-subset-r200/train', 'imagenet-r'],
+                         test_envs, hparams['data_augmentation'], hparams)
+
+
+class ImageNet_V2(ImageNetVariant):
+    ENVIRONMENTS = ['imagenet_train', 'imagenet_v2']
+    def __init__(self, root, test_envs, hparams):
+        super().__init__(root, ['ILSVRC/Data/CLS-LOC/train',
+                                'imagenetv2-matched-frequency-format-val'],
+                         test_envs, hparams['data_augmentation'], hparams)

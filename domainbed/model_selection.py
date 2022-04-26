@@ -139,3 +139,30 @@ class LeaveOneOutSelectionMethod(SelectionMethod):
             return step_accs.argmax('val_acc')
         else:
             return None
+
+class OODValidationSelectionMethod(SelectionMethod):
+    name = 'OOD validation set'
+
+    @classmethod
+    def _step_acc(self, record):
+        """Given a single record, return a {val_acc, test_acc} dict."""
+        test_env = record['args']['test_envs'][0]
+        val_envs = record['args']['val_envs']
+        val_env_keys = []
+        for i in itertools.count():
+            if f'env{i}_out_acc' not in record:
+                break
+            if i in val_envs:
+                val_env_keys.append(f'env{i}_out_acc')
+        test_acc_key = f'env{test_env}_out_acc'
+        return {
+            'val_acc': np.mean([record[key] for key in val_env_keys]),
+            'test_acc': record[test_acc_key]
+        }
+
+    @classmethod
+    def run_acc(self, run_records):
+        test_records = get_test_records(run_records)
+        if not len(test_records):
+            return None
+        return test_records.map(self._step_acc).argmax('val_acc')

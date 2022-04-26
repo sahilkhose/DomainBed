@@ -1,12 +1,28 @@
+# DomainBed (OoD-Bench version)
+This a fork of the test suite [DomainBed](https://github.com/facebookresearch/DomainBed).
+For the purpose of benchmarking the algorithms in OoD-Bench, the following additional contents are introduced:
+- code for loading six new datasets: `ColoredMNIST_IRM`, `CelebA_Blond`, `NICO_Mixed`, `ImageNet_A`, `ImageNet_R`, `ImageNet_V2`;
+- a new algorithm: Domain Generalization via Entropy Regularization (`ERDG`, [Zhao et al., 2020](https://proceedings.neurips.cc/paper/2020/hash/b98249b38337c5088bbc660d8f872d6a-Abstract.html));
+- a new model selection method: `OODValidationSelectionMethod`, which can be triggered by setting the arguments `--fixed_val_envs` and `--fixed_test_envs` of `domainbed.scripts.sweep`;
+- a new network architecture: `MNIST_MLP`, adapted from [the IRM implementation](https://github.com/facebookresearch/InvariantRiskMinimization/blob/main/code/colored_mnist/main.py);
+- a new data augmentation scheme (slightly different from the default data augmentation scheme of DomainBed) , adapted from [JigenDG](https://github.com/fmcarlucci/JigenDG), which can be activated by adding `"data_augmentation_scheme": "jigen"` to `--hparams`;
+- an option to unfreeze the batch normalization of ResNets, which can be activated by adding `"freeze_bn": false` to `--hparams`.
+
+## Benchmarking
+The launching commands of all the benchmarking experiments are provided [here](DomainBed/sweep).
+Example usage:
+```bash
+cd DomainBed
+data_dir="../../data"
+PYTHONPATH="$PYTHONPATH:$(pwd)/external/DomainBed/:$(pwd)/external/wilds/" \
+    bash sweep/ColoredMNIST_IRM/run.sh launch local $data_dir 0
+```
+
+For more usages, please refer to the DomainBed documentation below.
+
 # Welcome to DomainBed
 
 DomainBed is a PyTorch suite containing benchmark datasets and algorithms for domain generalization, as introduced in [In Search of Lost Domain Generalization](https://arxiv.org/abs/2007.01434).
-
-## Current results
-
-![Result table](domainbed/results/2020_10_06_7df6f06/results.png)
-
-Full results for [commit 7df6f06](https://github.com/facebookresearch/DomainBed/tree/7df6f06a6f9062284812a3f174c306218932c5e4) in LaTeX format available [here](domainbed/results/2020_10_06_7df6f06/results.tex).
 
 ## Available algorithms
 

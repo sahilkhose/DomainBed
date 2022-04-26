@@ -96,12 +96,14 @@ def all_test_env_combinations(n):
             yield [i, j]
 
 def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparams, steps,
-    data_dir, task, holdout_fraction, single_test_envs, hparams):
+    data_dir, task, holdout_fraction, fixed_test_envs, fixed_val_envs, single_test_envs, hparams):
     args_list = []
     for trial_seed in range(n_trials):
         for dataset in dataset_names:
             for algorithm in algorithms:
-                if single_test_envs:
+                if fixed_test_envs:
+                    all_test_envs = [fixed_test_envs]
+                elif single_test_envs:
                     all_test_envs = [
                         [i] for i in range(datasets.num_environments(dataset))]
                 else:
@@ -113,6 +115,8 @@ def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparam
                         train_args['dataset'] = dataset
                         train_args['algorithm'] = algorithm
                         train_args['test_envs'] = test_envs
+                        if fixed_val_envs:
+                            train_args['val_envs'] = fixed_val_envs
                         train_args['holdout_fraction'] = holdout_fraction
                         train_args['hparams_seed'] = hparams_seed
                         train_args['data_dir'] = data_dir
@@ -151,9 +155,24 @@ if __name__ == "__main__":
     parser.add_argument('--steps', type=int, default=None)
     parser.add_argument('--hparams', type=str, default=None)
     parser.add_argument('--holdout_fraction', type=float, default=0.2)
-    parser.add_argument('--single_test_envs', action='store_true')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--single_test_envs', action='store_true')
+    group.add_argument('--fixed_test_envs', type=int, nargs='+', default=[],
+        help='Use a fixed set of environments for testing. Setting the argument '
+             'disables leave-one-domain-out training.')
+    parser.add_argument('--fixed_val_envs', type=int, nargs='+', default=[],
+        help='Use a fixed set of environments for validation. Setting the argument '
+             'triggers OOD-validation model selection and disables all other methods. '
+             'The argument currently must be accompanied by FIXED_TEST_ENVS.')
     parser.add_argument('--skip_confirmation', action='store_true')
     args = parser.parse_args()
+
+    if args.fixed_val_envs:
+        if args.fixed_test_envs:
+            if set(args.fixed_val_envs) & set(args.fixed_test_envs):
+                raise ValueError('validation and test environments cannot overlap')
+        else:
+            raise NotImplementedError
 
     args_list = make_args_list(
         n_trials=args.n_trials,
@@ -166,6 +185,8 @@ if __name__ == "__main__":
         task=args.task,
         holdout_fraction=args.holdout_fraction,
         single_test_envs=args.single_test_envs,
+        fixed_test_envs=args.fixed_test_envs,
+        fixed_val_envs=args.fixed_val_envs,
         hparams=args.hparams
     )
 

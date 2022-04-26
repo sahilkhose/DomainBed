@@ -68,7 +68,7 @@ def todo_rename(records, selection_method, latex):
                 table[i][-1] = "{:.1f}".format(sum(means) / len(means))
 
         col_labels = [
-            "Algorithm", 
+            "Algorithm",
             *datasets.get_dataset_class(dataset).ENVIRONMENTS,
             "Avg"
         ]
@@ -119,6 +119,17 @@ if __name__ == "__main__":
     records = reporting.load_records(args.input_dir)
     print("Total records:", len(records))
 
+    if records and records[0]['args'].get('val_envs', False):
+        SELECTION_METHODS = [
+            model_selection.OODValidationSelectionMethod,
+        ]
+    else:
+        SELECTION_METHODS = [
+            model_selection.IIDAccuracySelectionMethod,
+            model_selection.LeaveOneOutSelectionMethod,
+            model_selection.OracleSelectionMethod
+        ]
+
     records = reporting.get_grouped_records(records)
     records = records.filter(
         lambda r:
@@ -126,12 +137,6 @@ if __name__ == "__main__":
             r['algorithm'] == args.algorithm and
             r['test_env'] == args.test_env
     )
-
-    SELECTION_METHODS = [
-        model_selection.IIDAccuracySelectionMethod,
-        model_selection.LeaveOneOutSelectionMethod,
-        model_selection.OracleSelectionMethod,
-    ]
 
     for selection_method in SELECTION_METHODS:
         print(f'Model selection: {selection_method.name}')

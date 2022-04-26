@@ -71,10 +71,10 @@ class ResNet(torch.nn.Module):
     def __init__(self, input_shape, hparams):
         super(ResNet, self).__init__()
         if hparams['resnet18']:
-            self.network = torchvision.models.resnet18(pretrained=True)
+            self.network = torchvision.models.resnet18(pretrained=hparams['pretrained'])
             self.n_outputs = 512
         else:
-            self.network = torchvision.models.resnet50(pretrained=True)
+            self.network = torchvision.models.resnet50(pretrained=hparams['pretrained'])
             self.n_outputs = 2048
 
         # self.network = remove_batch_norm_from_resnet(self.network)
@@ -95,7 +95,9 @@ class ResNet(torch.nn.Module):
         del self.network.fc
         self.network.fc = Identity()
 
-        self.freeze_bn()
+        self.freeze_bn_ = hparams['freeze_resnet_bn']
+        if self.freeze_bn_:
+            self.freeze_bn()
         self.hparams = hparams
         self.dropout = nn.Dropout(hparams['resnet_dropout'])
 
@@ -108,12 +110,36 @@ class ResNet(torch.nn.Module):
         Override the default train() to freeze the BN parameters
         """
         super().train(mode)
-        self.freeze_bn()
+        if self.freeze_bn_:
+            self.freeze_bn()
 
     def freeze_bn(self):
         for m in self.network.modules():
             if isinstance(m, nn.BatchNorm2d):
                 m.eval()
+                
+                
+class MNIST_MLP(nn.Module):
+    def __init__(self, input_shape, hdim=390):
+        super(MNIST_MLP, self).__init__()
+        input_dim = input_shape[0] * input_shape[1] * input_shape[2]
+        self.modules_ = nn.Sequential(
+            nn.Linear(input_dim, hdim),
+            nn.ReLU(True),
+            nn.Linear(hdim, hdim),
+            nn.ReLU(True)
+        )
+        self.n_outputs = hdim
+        
+        for m in self.modules_:
+            if isinstance(m, nn.Linear):
+                gain = nn.init.calculate_gain('relu')
+                nn.init.xavier_uniform_(m.weight, gain=gain)
+                nn.init.zeros_(m.bias)
+    
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        return self.modules_(x)
 
 
 class MNIST_CNN(nn.Module):
@@ -185,6 +211,8 @@ def Featurizer(input_shape, hparams):
     """Auto-select an appropriate featurizer for the given input shape."""
     if len(input_shape) == 1:
         return MLP(input_shape[0], hparams["mlp_width"], hparams)
+    elif input_shape[1:3] == (14, 14):  # ColoredMNIST_IRM
+        return MNIST_MLP(input_shape)
     elif input_shape[1:3] == (28, 28):
         return MNIST_CNN(input_shape)
     elif input_shape[1:3] == (32, 32):
@@ -226,3 +254,78 @@ class WholeFish(nn.Module):
 
     def forward(self, x):
         return self.net(x)
+
+
+class GradReverse(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, lambd, reverse=True):
+        ctx.lambd = lambd
+        ctx.reverse=reverse
+        return x.view_as(x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        if ctx.reverse:
+            return (grad_output * -ctx.lambd), None, None
+        else:
+            return (grad_output * ctx.lambd), None, None
+
+
+class DisNet(nn.Module):
+    def __init__(self, in_channels, num_domains, layers=[1024, 256]):
+        super(DisNet, self).__init__()
+        self.domain_classifier = nn.ModuleList()
+        # different from the original implementation, a single linear layer is
+        # used for fair comparison with other algorithms
+        self.domain_classifier = nn.Linear(in_channels, num_domains)
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight, .1)
+                nn.init.constant_(m.bias, 0.)
+
+        self.lambda_ = 0.0
+
+    def set_lambda(self, lambda_):
+        self.lambda_ = lambda_
+
+    def forward(self, x):
+        x = GradReverse.apply(x, self.lambda_, True)
+        return self.domain_classifier(x)
+
+    def get_params(self, lr):
+        return [{'params': self.domain_classifier.parameters(), 'lr': lr}]
+
+
+class ClsNet(nn.Module):
+    def __init__(self, in_channels, num_domains, num_classes, reverse=True,
+                 layers=[1024, 256]):
+        super(ClsNet, self).__init__()
+        self.classifier_list = nn.ModuleList()
+        for _ in range(num_domains):
+            # different from the original implementation, a single linear layer is
+            # used for fair comparison with other algorithms
+            self.classifier_list.append(nn.Linear(in_channels, num_classes))
+        for m in self.classifier_list.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight, .1)
+                nn.init.constant_(m.bias, 0.)
+
+        self.lambda_ = 0
+        self.reverse = reverse
+
+    def set_lambda(self, lambda_):
+        self.lambda_ = lambda_
+
+    def forward(self, x):
+        output = []
+        for c, x_ in zip(self.classifier_list, x):
+            if len(x_) == 0:
+                output.append(None)
+            else:
+                x_ = GradReverse.apply(x_, self.lambda_, self.reverse)
+                output.append(c(x_))
+
+        return output
+
+    def get_params(self, lr):
+        return [{'params': self.classifier_list.parameters(), 'lr': lr}]
