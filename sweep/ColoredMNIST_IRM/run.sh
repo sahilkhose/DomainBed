@@ -2,9 +2,7 @@ dataset=ColoredMNIST_IRM
 command=$1
 launcher=$2
 data_dir=$3
-gpu_id=$4
 
-CUDA_VISIBLE_DEVICES=${gpu_id} \
 python -m domainbed.scripts.sweep ${command}\
        --datasets ${dataset}\
        --algorithms ERM IRM VREx MMD RSC ARM CORAL SagNet GroupDRO Mixup MLDG DANN MTL ANDMask IGA ERDG\
