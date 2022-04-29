@@ -1,24 +1,25 @@
-# DomainBed (OoD-Bench version)
+# DomainBed (adapted for OoD-Bench)
 This a fork of the test suite [DomainBed](https://github.com/facebookresearch/DomainBed).
 For the purpose of benchmarking the algorithms in OoD-Bench, the following additional contents are introduced:
-- code for loading six new datasets: `ColoredMNIST_IRM`, `CelebA_Blond`, `NICO_Mixed`, `ImageNet_A`, `ImageNet_R`, `ImageNet_V2`;
+- six new datasets: `ColoredMNIST_IRM`, `CelebA_Blond`, `NICO_Mixed`, `ImageNet_A`, `ImageNet_R`, `ImageNet_V2`;
 - a new algorithm: Domain Generalization via Entropy Regularization (`ERDG`, [Zhao et al., 2020](https://proceedings.neurips.cc/paper/2020/hash/b98249b38337c5088bbc660d8f872d6a-Abstract.html));
 - a new model selection method: `OODValidationSelectionMethod`, which can be triggered by setting the arguments `--fixed_val_envs` and `--fixed_test_envs` of `domainbed.scripts.sweep`;
-- a new network architecture: `MNIST_MLP`, adapted from [the IRM implementation](https://github.com/facebookresearch/InvariantRiskMinimization/blob/main/code/colored_mnist/main.py);
+- a new network architecture: `MNIST_MLP` for `ColoredMNIST_IRM`, adapted from [the IRM implementation](https://github.com/facebookresearch/InvariantRiskMinimization/blob/main/code/colored_mnist/main.py);
 - a new data augmentation scheme (slightly different from the default data augmentation scheme of DomainBed) , adapted from [JigenDG](https://github.com/fmcarlucci/JigenDG), which can be activated by adding `"data_augmentation_scheme": "jigen"` to `--hparams`;
 - an option to unfreeze the batch normalization of ResNets, which can be activated by adding `"freeze_bn": false` to `--hparams`.
 
 ## Benchmarking
-The launching commands of all the benchmarking experiments are provided [here](DomainBed/sweep).
+The launching scripts of all the benchmarking experiments are provided [here](sweep).
 Example usage:
-```bash
-cd DomainBed
-data_dir="../../data"
-PYTHONPATH="$PYTHONPATH:$(pwd)/external/DomainBed/:$(pwd)/external/wilds/" \
-    bash sweep/ColoredMNIST_IRM/run.sh launch local $data_dir 0
+```sh
+dataset="ColoredMNIST_IRM"
+command="launch"  # or "delete_incomplete"
+launcher="local"  # or "multi_gpu"
+data_dir="/path/to/data"
+sh sweep/$dataset/run.sh $command $launcher $data_dir
 ```
 
-For more usages, please refer to the DomainBed documentation below.
+To launch your own experiments and for more usages, please refer to the DomainBed documentation below.
 
 # Welcome to DomainBed
 
