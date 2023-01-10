@@ -1,3 +1,24 @@
+# MixStyle setup
+## Quick start
+
+Download the PACS dataset:
+
+```sh
+python3 -m domainbed.scripts.download \
+       --data_dir=./domainbed/data
+```
+
+Train a model:
+
+```sh
+python3 -m domainbed.scripts.train\
+       --data_dir=./domainbed/data/MNIST/\
+       --algorithm MixStyle\
+       --dataset PACS\
+       --test_env 2
+```
+
+
 # DomainBed (adapted for OoD-Bench)
 This a fork of the test suite [DomainBed](https://github.com/facebookresearch/DomainBed).
 For the purpose of benchmarking the algorithms in OoD-Bench, the following additional contents are introduced:
