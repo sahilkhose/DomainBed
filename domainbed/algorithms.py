@@ -49,6 +49,7 @@ ALGORITHMS = [
     'CAD',
     'CondCAD',
     'ERDG',
+    'MixStyle'
 ]
 
 def get_algorithm_class(algorithm_name):
@@ -115,6 +116,43 @@ class ERM(Algorithm):
 
     def predict(self, x):
         return self.network(x)
+
+
+class MixStyle(ERM):
+    """MixStyle
+    Reference:
+        Zhou et al. Domain Generalization with MixStyle. ICLR 2021.
+        https://arxiv.org/pdf/2104.02008.pdf
+    """
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        """
+        hparams Args:
+          p (float): probability of using MixStyle.
+          alpha (float): parameter of the Beta distribution.
+          eps (float): scaling parameter to avoid numerical issues.
+          mix (str): how to mix. ['random'/'crossdomain']
+        
+        p=0.5, alpha=0.1, eps=1e-6, mix='random'/'crossdomain'
+        """
+        super(MixStyle, self).__init__(input_shape, num_classes, num_domains, hparams)
+        print("__"*40)
+        print("Using MixStyle!")
+        print(f"input shape: {input_shape} num classes: {num_classes}")
+        print("__"*40)
+        self.featurizer = networks.MixStyleResNet18(input_shape, self.hparams)
+        self.classifier = networks.Classifier(
+            self.featurizer.n_outputs,
+            num_classes,
+            self.hparams['nonlinear_classifier'])
+        self.network = nn.Sequential(self.featurizer, self.classifier)
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+    def __repr__(self):
+        return f'MixStyle(p={self.hparams.p}, alpha={self.hparams.alpha}, eps={self.hparams.eps}, mix={self.hparams.mix})'
 
 
 class Fish(Algorithm):
