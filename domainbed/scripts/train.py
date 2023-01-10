@@ -21,6 +21,7 @@ from domainbed import algorithms
 from domainbed.lib import misc
 from domainbed.lib.fast_data_loader import InfiniteDataLoader, FastDataLoader
 
+from torch.utils.tensorboard import SummaryWriter
 
 def _get_domainbed_dataloaders(args, dataset, hparams):
     # Split each env into an 'in-split' and an 'out-split'. We'll train on
@@ -189,7 +190,8 @@ if __name__ == "__main__":
     parser.add_argument('--skip_model_save', action='store_true')
     parser.add_argument('--save_model_every_checkpoint', action='store_true')
     args = parser.parse_args()
-
+    writer = SummaryWriter(comment=f"_{args.algorithm}") # Tensorboard visualization
+    
     # If we ever want to implement checkpointing, just persist these values
     # every once in a while, and then load them from disk here.
     start_step = 0
@@ -319,7 +321,12 @@ if __name__ == "__main__":
                 last_results_keys = results_keys
             misc.print_row([results[key] for key in results_keys],
                 colwidth=12)
-
+            ## for every checkpoint_freq
+            for key in results_keys: # Writing results to tensorboard 
+                if "acc" in key: 
+                    writer.add_scalar(f"Acc/{key.replace('_acc', '')}", results[key], int(results["epoch"])) # int(results["epoch"]) or step
+                else:
+                    writer.add_scalar(key, results[key], int(results["epoch"]))
             results.update({
                 'hparams': hparams,
                 'args': vars(args)
