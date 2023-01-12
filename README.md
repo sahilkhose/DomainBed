@@ -11,6 +11,10 @@ python3 -m domainbed.scripts.download \
 Train a model:
 
 ```sh
+CUDA_VISIBLE_DEVICES=1 python3 -m domainbed.scripts.train --data_dir=./domainbed/data --algorithm=MixStyle --dataset=PACS --test_env 0
+```
+
+```sh
 python3 -m domainbed.scripts.train\
        --data_dir=./domainbed/data/\
        --algorithm MixStyle\

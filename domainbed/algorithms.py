@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch.autograd as autograd
 from torch.autograd import Variable
 
+import clip 
 import copy
 import numpy as np
 from collections import defaultdict, OrderedDict
@@ -49,7 +50,9 @@ ALGORITHMS = [
     'CAD',
     'CondCAD',
     'ERDG',
-    'MixStyle'
+    'MixStyle', # started adding new algos
+    'CLIP_ERM',
+    'CLIP_MixStyle',
 ]
 
 def get_algorithm_class(algorithm_name):
@@ -117,6 +120,7 @@ class ERM(Algorithm):
     def predict(self, x):
         return self.network(x)
 
+
 class CLIP_ERM(Algorithm):
     '''Simple idea: map the ERM class embedding into the CLIP text space'''
 
@@ -133,9 +137,9 @@ class CLIP_ERM(Algorithm):
             weight_decay=self.hparams['weight_decay']
         )
 
-        self.text_features = self.clip_text(augment=False).float()
+        self.text_features = self.clip_text(augment=False).float() # (7, 512)
 
-    def update(self, minibatches, unlabeled=None, mixup=False, label_aug=False):
+    def update(self, minibatches, unlabeled=None, mixup=False, label_aug=False): # mixup = False default
         all_x = torch.cat([x for x, y in minibatches])
         all_y = torch.cat([y for x, y in minibatches])
 
@@ -150,12 +154,12 @@ class CLIP_ERM(Algorithm):
                 li = self.featurizer(xi)
                 lj = self.featurizer(xj)
 
-                l = lam * li + (1 - lam) * lj
-                clip_mix_text = lam * self.text_features[yi] + (1 - lam) * self.text_features[yj]
-                clip_mix_label = torch.arange(clip_mix_text.shape[0]).cuda()
-                aug_mix_text = torch.cat([clip_mix_text, self.text_features])
+                l = lam * li + (1 - lam) * lj # (32, 512) bs = 32, num_classes = 7, hid_dim = 512
+                clip_mix_text = lam * self.text_features[yi] + (1 - lam) * self.text_features[yj] # (32, 512)
+                clip_mix_label = torch.arange(clip_mix_text.shape[0]).cuda() # (32)
+                aug_mix_text = torch.cat([clip_mix_text, self.text_features]) # (39, 512)
 
-                cosine_sim = l @ aug_mix_text.T
+                cosine_sim = l @ aug_mix_text.T # (32, 39)
                 loss = F.cross_entropy(cosine_sim, clip_mix_label)
 
                 objective += loss.sum()
@@ -182,10 +186,10 @@ class CLIP_ERM(Algorithm):
                 raise NotImplementedError
             
             elif loss_type == 'augment_cos':
-                original_text_features = self.text_features
+                original_text_features = self.text_features # (7, 512)
                 mix_numb = torch.rand(1).cuda()
-                mix_perm = torch.randperm(self.text_features.shape[0])
-                aug_text_features = (1 - mix_numb) * original_text_features + mix_numb * original_text_features[mix_perm]
+                mix_perm = torch.randperm(self.text_features.shape[0]) # random perm of 0..6
+                aug_text_features = (1 - mix_numb) * original_text_features + mix_numb * original_text_features[mix_perm] # (7, 512) random class combination vectors
 
                 cat_text_features = torch.cat([original_text_features, aug_text_features])
                 results = self.predict(all_x, cat_text_features)
@@ -262,7 +266,7 @@ class MixStyle(ERM):
         print("Using MixStyle!")
         print(f"input shape: {input_shape} num classes: {num_classes}")
         print("__"*40)
-        self.featurizer = networks.MixStyleResNet18(input_shape, self.hparams)
+        self.featurizer = networks.MixStyleResNet18(input_shape, self.hparams) # Only thing different from ERM 
         self.classifier = networks.Classifier(
             self.featurizer.n_outputs,
             num_classes,
@@ -276,6 +280,134 @@ class MixStyle(ERM):
 
     def __repr__(self):
         return f'MixStyle(p={self.hparams.p}, alpha={self.hparams.alpha}, eps={self.hparams.eps}, mix={self.hparams.mix})'
+
+
+class CLIP_MixStyle(Algorithm):
+    '''
+    Adapted from class CLIP_ERM(Algorithm) 
+    Simple change: replace the ERM featurizer with MixStyle featurizer
+
+    Simple idea: map the ERM class embedding into the CLIP text space'''
+
+    PACS_labels = ['dog', 'elephant', 'giraffe', 'guitar', 'horse', 'house', 'person']
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(CLIP_MixStyle, self).__init__(input_shape, num_classes, num_domains, hparams)
+        self.featurizer = networks.MixStyleResNet18(input_shape, self.hparams) # Only thing different from CLIP_ERM 
+
+        self.network = nn.Sequential(self.featurizer)
+        self.optimizer = torch.optim.Adam(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams['weight_decay']
+        )
+
+        self.text_features = self.clip_text(augment=False).float() # (7, 512)
+
+    def update(self, minibatches, unlabeled=None, mixup=True, label_aug=False): # mixup = False default
+        all_x = torch.cat([x for x, y in minibatches])
+        all_y = torch.cat([y for x, y in minibatches])
+
+        if mixup:
+            objective = 0
+
+            for (xi, yi), (xj, yj) in random_pairs_of_minibatches(minibatches):
+
+                lam = (0.1 + 0.2 * torch.rand(1)).cuda()
+                # latent space (last layer) mixup
+
+                li = self.featurizer(xi)
+                lj = self.featurizer(xj)
+
+                l = lam * li + (1 - lam) * lj # (32, 512) bs = 32, num_classes = 7, hid_dim = 512
+                clip_mix_text = lam * self.text_features[yi] + (1 - lam) * self.text_features[yj] # (32, 512)
+                clip_mix_label = torch.arange(clip_mix_text.shape[0]).cuda() # (32)
+                aug_mix_text = torch.cat([clip_mix_text, self.text_features]) # (39, 512)
+
+                cosine_sim = l @ aug_mix_text.T # (32, 39)
+                loss = F.cross_entropy(cosine_sim, clip_mix_label)
+
+                objective += loss.sum()
+
+            objective /= len(minibatches)
+            objective = objective
+
+            self.optimizer.zero_grad()
+            objective.backward()
+            self.optimizer.step()
+
+            return {'loss': objective.item()}
+
+        if label_aug:
+            raise NotImplementedError
+
+        else:
+            loss_type = 'cos'
+
+            if loss_type == 'cos':
+                loss = F.cross_entropy(self.predict(all_x), all_y)
+            
+            elif loss_type == 'l2':
+                raise NotImplementedError
+            
+            elif loss_type == 'augment_cos':
+                original_text_features = self.text_features # (7, 512)
+                mix_numb = torch.rand(1).cuda()
+                mix_perm = torch.randperm(self.text_features.shape[0]) # random perm of 0..6
+                aug_text_features = (1 - mix_numb) * original_text_features + mix_numb * original_text_features[mix_perm] # (7, 512) random class combination vectors
+
+                cat_text_features = torch.cat([original_text_features, aug_text_features])
+                results = self.predict(all_x, cat_text_features)
+
+                loss = F.cross_entropy(results, all_y)
+            
+            else:
+                raise NotImplementedError
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+            return {'loss': loss.item()}
+
+    def predict(self, x, text_features=None):
+
+        img_features = self.network(x)
+        if text_features is None:
+            cosine_sim = img_features @ self.text_features.T
+        else:
+            cosine_sim = img_features @ text_features.T
+        return cosine_sim
+
+    def clip_text(self, targets=None, device="cuda", augment=False):
+        if targets is None:
+            targets = self.PACS_labels
+        
+        if augment:
+            raise NotImplementedError
+
+        clip_model, _ = self.load_clip_github()
+
+        with torch.no_grad():
+            text_token = clip.tokenize(targets).to(device)
+            text_features = clip_model.encode_text(text_token)
+
+        return text_features
+
+    def load_clip_online(self):
+        TOKEN = 'your_token'
+
+        stable_diffusion_version = "openai/clip-vit-large-patch14"
+        clip_base_version = "openai/clip-vit-base-patch16"
+
+        tokenizer = CLIPTokenizer.from_pretrained(stable_diffusion_version)
+        text_encoder = CLIPTextModel.from_pretrained(stable_diffusion_version)
+        return tokenizer, text_encoder
+
+    def load_clip_github(self, device="cuda"):
+        '''TODO: clone the clip repo or pip install it to use it'''
+        model, _ = clip.load("ViT-B/32", device=device)
+        return model, None
 
 
 class Fish(Algorithm):
