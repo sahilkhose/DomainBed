@@ -2,7 +2,9 @@ from glob import glob
 
 import tensorboard_reducer as tbr
 
-LOG_dir = "TB_logs/test_batchtranslator/version_20"
+# LOG_dir = "TB_logs/test_batchtranslator/version_20"
+LOG_dir = "runs/Jan10_16-28-29_BMEDYER-GPU2_MixStyle"
+TEST_DOMAIN = 0
 
 input_event_dirs = sorted(glob(LOG_dir))
 # where to write reduced TB events, each reduce operation will be in a separate subdirectory
@@ -46,4 +48,4 @@ def find_max_on_train_domain(test_domain=0):
     print(test_results[max_index])
 
 
-find_max_on_train_domain(test_domain=0)
+find_max_on_train_domain(test_domain=TEST_DOMAIN)

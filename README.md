@@ -22,6 +22,10 @@ python3 -m domainbed.scripts.train\
        --test_env 2
 ```
 
+## New additions
+- domainbed/tb_reduce.py
+- domainbed/scripts/eval_model.py # copy of train.py
+
 
 # DomainBed (adapted for OoD-Bench)
 This a fork of the test suite [DomainBed](https://github.com/facebookresearch/DomainBed).
