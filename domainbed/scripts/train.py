@@ -189,8 +189,14 @@ if __name__ == "__main__":
         help="For domain adaptation, % of test to use unlabeled for training.")
     parser.add_argument('--skip_model_save', action='store_true')
     parser.add_argument('--save_model_every_checkpoint', action='store_true')
+    parser.add_argument('--save_tb', default=False, action="store_true", help="Save tensorboard [True / False]")
     args = parser.parse_args()
-    writer = SummaryWriter(comment=f"_{args.algorithm}") # Tensorboard visualization
+    print(args.save_tb)
+    if args.save_tb: 
+        print(f"Saving tensorboard! {args.algorithm}")
+        writer = SummaryWriter(comment=f"_{args.algorithm}") # Tensorboard visualization
+    else:
+        print("Not saving tensorboard!")
     
     # If we ever want to implement checkpointing, just persist these values
     # every once in a while, and then load them from disk here.
@@ -322,11 +328,12 @@ if __name__ == "__main__":
             misc.print_row([results[key] for key in results_keys],
                 colwidth=12)
             ## for every checkpoint_freq
-            for key in results_keys: # Writing results to tensorboard 
-                if "acc" in key: 
-                    writer.add_scalar(f"Acc/{key.replace('_acc', '')}", results[key], int(results["epoch"])) # int(results["epoch"]) or step
-                else:
-                    writer.add_scalar(key, results[key], int(results["epoch"]))
+            if args.save_tb:
+                for key in results_keys: # Writing results to tensorboard 
+                    if "acc" in key: 
+                        writer.add_scalar(f"Acc/{key.replace('_acc', '')}", results[key], int(results["epoch"])) # int(results["epoch"]) or step
+                    else:
+                        writer.add_scalar(key, results[key], int(results["epoch"]))
             results.update({
                 'hparams': hparams,
                 'args': vars(args)
@@ -343,7 +350,7 @@ if __name__ == "__main__":
             if args.save_model_every_checkpoint:
                 save_checkpoint(f'model_step{step}.pkl')
 
-    save_checkpoint('model.pkl')
+    save_checkpoint(f'model_{args.algorithm}.pkl')
 
     with open(os.path.join(args.output_dir, 'done'), 'w') as f:
         f.write('done')
