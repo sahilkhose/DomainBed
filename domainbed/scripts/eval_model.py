@@ -21,7 +21,15 @@ from domainbed import algorithms
 from domainbed.lib import misc
 from domainbed.lib.fast_data_loader import InfiniteDataLoader, FastDataLoader
 
+## For latent visualization
+from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
+from matplotlib import cm
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 
 def _get_domainbed_dataloaders(args, dataset, hparams):
     # Split each env into an 'in-split' and an 'out-split'. We'll train on
@@ -189,13 +197,16 @@ if __name__ == "__main__":
         help="For domain adaptation, % of test to use unlabeled for training.")
     parser.add_argument('--skip_model_save', action='store_true')
     parser.add_argument('--save_model_every_checkpoint', action='store_true')
+    parser.add_argument('--load', type=str, default="train_output/model.pkl")
     args = parser.parse_args()
-    writer = SummaryWriter(comment=f"_{args.algorithm}") # Tensorboard visualization
+    # writer = SummaryWriter(comment=f"_{args.algorithm}") # Tensorboard visualization
     
     # If we ever want to implement checkpointing, just persist these values
     # every once in a while, and then load them from disk here.
     start_step = 0
     algorithm_dict = None
+    algorithm_dict = torch.load(args.load)['model_dict']
+    print(f"{args.algorithm} loading from {args.load} evaluating on {args.dataset} {args.test_envs}")
 
     os.makedirs(args.output_dir, exist_ok=True)
     sys.stdout = misc.Tee(os.path.join(args.output_dir, 'out.txt'))
@@ -262,51 +273,21 @@ if __name__ == "__main__":
     train_minibatches_iterator = zip(*train_loaders)
     uda_minibatches_iterator = zip(*uda_loaders)
     checkpoint_vals = collections.defaultdict(lambda: [])
-
     steps_per_epoch = min([len(env)/hparams['batch_size'] for env, _ in in_splits
                           if env is not None])
-
     n_steps = args.steps or dataset.N_STEPS
     checkpoint_freq = args.checkpoint_freq or dataset.CHECKPOINT_FREQ
 
-    def save_checkpoint(filename):
-        if args.skip_model_save:
-            return
-        save_dict = {
-            "args": vars(args),
-            "model_input_shape": dataset.input_shape,
-            "model_num_classes": dataset.num_classes,
-            "model_num_domains": len(dataset) - len(args.test_envs) - len(args.val_envs),
-            "model_hparams": hparams,
-            "model_dict": algorithm.state_dict()
-        }
-        torch.save(save_dict, os.path.join(args.output_dir, filename))
-
-
     last_results_keys = None
     for step in range(start_step, n_steps):
-        step_start_time = time.time()
-        minibatches_device = [(x.to(device), y.to(device))
-            for x,y in next(train_minibatches_iterator)]
-        if args.task == "domain_adaptation":
-            uda_device = [x.to(device)
-                for x,_ in next(uda_minibatches_iterator)]
-        else:
-            uda_device = None
-        step_vals = algorithm.update(minibatches_device, uda_device)
-        checkpoint_vals['step_time'].append(time.time() - step_start_time)
-
-        for key, val in step_vals.items():
-            checkpoint_vals[key].append(val)
-
-        if (step % checkpoint_freq == 0) or (step == n_steps - 1):
+        print("__"*40)
+        print("Evaluation started...")
+        if step == 0:
+            ## Print Accuracy
             results = {
                 'step': step,
                 'epoch': step / steps_per_epoch,
             }
-
-            for key, val in checkpoint_vals.items():
-                results[key] = np.mean(val)
 
             evals = zip(eval_loader_names, eval_loaders, eval_weights)
             for name, loader, weights in evals:
@@ -321,29 +302,83 @@ if __name__ == "__main__":
                 last_results_keys = results_keys
             misc.print_row([results[key] for key in results_keys],
                 colwidth=12)
-            ## for every checkpoint_freq
-            for key in results_keys: # Writing results to tensorboard 
-                if "acc" in key: 
-                    writer.add_scalar(f"Acc/{key.replace('_acc', '')}", results[key], int(results["epoch"])) # int(results["epoch"]) or step
-                else:
-                    writer.add_scalar(key, results[key], int(results["epoch"]))
-            results.update({
-                'hparams': hparams,
-                'args': vars(args)
-            })
+            
+            def plot_tsne(embedding, label, num_categories, save_name):
+                ## Got the embeddings, dimensionality reduction now
+                tsne = TSNE(2, verbose=1)
+                tsne_proj = tsne.fit_transform(embedding, label)
+                # Plot those points as a scatter plot and label them based on the pred labels
+                cmap = cm.get_cmap('tab20')
+                fig, ax = plt.subplots(figsize=(8,8))
+                for lab in range(num_categories):
+                    indices = label==lab
+                    ax.scatter(tsne_proj[indices, 0], tsne_proj[indices, 1], c=np.array(cmap(lab)).reshape(1, 4), label=lab, alpha=0.5)
+                ax.legend(fontsize='large', markerscale=2)
+                folder_name = args.load.split(".")[-2].split("/")[-1]
+                os.makedirs(os.path.join("tsne_results", folder_name), exist_ok=True)
+                file_name = os.path.join("tsne_results", folder_name, save_name) 
+                plt.savefig(file_name) # ./tsne_results/[model name from .pkl]/env.png
+                print(f"Saving... {file_name}")
+                print("__"*40)
+            
+            ## Data visualization -- CLASSES
+            print("__"*40)
+            print("CLASSES TSNE")
+            print("__"*40)
+            evals = zip(eval_loader_names, eval_loaders, eval_weights)
+            for name, loader, weights in evals: 
+                print(name)
+                algorithm.eval()
+                with torch.no_grad():
+                    embeddings = []
+                    all_y_pred = []
+                    for x, y in tqdm(loader):
+                        x = x.to(device)
+                        y = y.to(device)
+                        p = algorithm.predict(x)
+                        emb = algorithm.featurizer(x)
+                        # all_y_pred.extend(p.argmax(1).detach().cpu().numpy()) # prediction
+                        all_y_pred.extend(y.detach().cpu().numpy()) # label
+                        embeddings.extend(emb.detach().cpu().numpy())
+                    all_y_pred = np.array(all_y_pred)
+                    embeddings = np.array(embeddings)
+                    plot_tsne(embeddings, all_y_pred, num_categories=7, save_name=f"{name}.png")
+            
+            ## Data visualization -- _in DOMAINS and _in CLASSES
+            print("__"*40)
+            print("DOMAINS and CLASSES TSNE")
+            print("__"*40)
+            evals = zip(eval_loader_names, eval_loaders, eval_weights)
+            main_embeddings = []
+            main_domains = []
+            main_all_y_pred = []
+            for name, loader, weights in evals: 
+                print(name)
+                algorithm.eval()
+                if "in" in name: # just run on "_in" envs
+                    with torch.no_grad():
+                        embeddings = []
+                        all_y_pred = []
+                        for x, y in tqdm(loader):
+                            x = x.to(device)
+                            y = y.to(device)
+                            p = algorithm.predict(x)
+                            emb = algorithm.featurizer(x)
+                            embeddings.extend(emb.detach().cpu().numpy())
+                            all_y_pred.extend(y.detach().cpu().numpy())
+                        embeddings = np.array(embeddings)
+                        domain_labels = np.ones(embeddings.shape[0]) * int(name.split("env")[1].split("_")[0]) 
+                        main_embeddings.append(embeddings)
+                        main_domains.append(domain_labels)
+                        main_all_y_pred.append(all_y_pred)
+                        
+            main_embeddings = np.concatenate(main_embeddings, axis=0)
+            main_domains = np.concatenate(main_domains, axis=0)
+            main_all_y_pred = np.concatenate(main_all_y_pred, axis=0)
+            plot_tsne(main_embeddings, main_domains, num_categories=4, save_name=f"all_domains.png")
+            plot_tsne(main_embeddings, main_all_y_pred, num_categories=7, save_name=f"all_classes.png")
+            
+            exit()
 
-            epochs_path = os.path.join(args.output_dir, 'results.jsonl')
-            with open(epochs_path, 'a') as f:
-                f.write(json.dumps(results, sort_keys=True) + "\n")
-
-            algorithm_dict = algorithm.state_dict()
-            start_step = step + 1
-            checkpoint_vals = collections.defaultdict(lambda: [])
-
-            if args.save_model_every_checkpoint:
-                save_checkpoint(f'model_step{step}.pkl')
-
-    save_checkpoint('model.pkl')
-
-    with open(os.path.join(args.output_dir, 'done'), 'w') as f:
-        f.write('done')
+    # with open(os.path.join(args.output_dir, 'done'), 'w') as f:
+    #     f.write('done')
