@@ -3,7 +3,11 @@ from glob import glob
 import tensorboard_reducer as tbr
 
 # LOG_dir = "TB_logs/test_batchtranslator/version_20"
-LOG_dir = "runs/Jan10_16-28-29_BMEDYER-GPU2_MixStyle"
+
+# LOG_dir = "runs/Jan18_12-18-58_BMEDYER-GPU2_ERM"
+# LOG_dir = "runs/Jan18_12-19-43_BMEDYER-GPU2_MixStyle"
+# LOG_dir = "runs/Jan18_12-36-38_BMEDYER-GPU2_CLIP_ERM"
+LOG_dir = "runs/Jan18_12-36-57_BMEDYER-GPU2_CLIP_MixStyle"
 TEST_DOMAIN = 0
 
 input_event_dirs = sorted(glob(LOG_dir))
