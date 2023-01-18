@@ -304,7 +304,7 @@ class CLIP_MixStyle(Algorithm):
 
         self.text_features = self.clip_text(augment=False).float() # (7, 512)
 
-    def update(self, minibatches, unlabeled=None, mixup=True, label_aug=False): # mixup = False default
+    def update(self, minibatches, unlabeled=None, mixup=False, label_aug=False): # mixup = False default
         all_x = torch.cat([x for x, y in minibatches])
         all_y = torch.cat([y for x, y in minibatches])
 

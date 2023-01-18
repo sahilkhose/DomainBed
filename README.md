@@ -11,7 +11,12 @@ python3 -m domainbed.scripts.download \
 Train a model:
 
 ```sh
-CUDA_VISIBLE_DEVICES=1 python3 -m domainbed.scripts.train --data_dir=./domainbed/data --algorithm=MixStyle --dataset=PACS --test_env 0
+CUDA_VISIBLE_DEVICES=1 python3 -m domainbed.scripts.train --data_dir=./domainbed/data --algorithm=MixStyle --dataset=PACS --test_env 0 --save_tb False
+```
+
+Eval a model:
+```sh
+CUDA_VISIBLE_DEVICES=7 python3 -m domainbed.scripts.eval_model --data_dir=./domainbed/data --algorithm=CLIP_MixStyle --dataset=PACS --test_env 0 --load ./train_output/model_clip_mixstyle_2.pkl
 ```
 
 ```sh
@@ -25,6 +30,34 @@ python3 -m domainbed.scripts.train\
 ## New additions
 - domainbed/tb_reduce.py
 - domainbed/scripts/eval_model.py # copy of train.py
+
+## Jan 18 runs
+### Training
+       - ERM
+       - MixStyle
+       - CLIP_ERM (mixup=False)
+       - CLIP_MixStyle (mixup=False)
+
+```sh
+examples
+CUDA_VISIBLE_DEVICES=5 python3 -m domainbed.scripts.train --data_dir=./domainbed/data --algorithm=ERM --dataset=PACS --test_env 0 # If you don't want to save the tensorboard
+CUDA_VISIBLE_DEVICES=5 python3 -m domainbed.scripts.train --data_dir=./domainbed/data --algorithm=ERM --dataset=PACS --test_env 0 --save_tb # If you want to save the tensorboard
+
+training
+CUDA_VISIBLE_DEVICES=5 python3 -m domainbed.scripts.train --data_dir=./domainbed/data --algorithm=ERM --dataset=PACS --test_env 0 --save_tb 
+CUDA_VISIBLE_DEVICES=4 python3 -m domainbed.scripts.train --data_dir=./domainbed/data --algorithm=MixStyle --dataset=PACS --test_env 0 --save_tb 
+
+CUDA_VISIBLE_DEVICES=5 python3 -m domainbed.scripts.train --data_dir=./domainbed/data --algorithm=CLIP_ERM --dataset=PACS --test_env 0 --save_tb 
+CUDA_VISIBLE_DEVICES=4 python3 -m domainbed.scripts.train --data_dir=./domainbed/data --algorithm=CLIP_MixStyle --dataset=PACS --test_env 0 --save_tb 
+
+
+generating tsne plots
+CUDA_VISIBLE_DEVICES=5 python3 -m domainbed.scripts.eval_model --data_dir=./domainbed/data --algorithm=ERM --dataset=PACS --test_env 0 --load ./train_output/model_ERM.pkl
+CUDA_VISIBLE_DEVICES=4 python3 -m domainbed.scripts.eval_model --data_dir=./domainbed/data --algorithm=MixStyle --dataset=PACS --test_env 0 --load ./train_output/model_MixStyle.pkl
+
+CUDA_VISIBLE_DEVICES=5 python3 -m domainbed.scripts.eval_model --data_dir=./domainbed/data --algorithm=CLIP_ERM --dataset=PACS --test_env 0 --load ./train_output/model_CLIP_ERM.pkl
+CUDA_VISIBLE_DEVICES=4 python3 -m domainbed.scripts.eval_model --data_dir=./domainbed/data --algorithm=CLIP_MixStyle --dataset=PACS --test_env 0 --load ./train_output/model_CLIP_MixStyle.pkl
+```
 
 
 # DomainBed (adapted for OoD-Bench)

@@ -4,3 +4,5 @@ domainbed/facebook.py
 domainbed/data/*
 train_output/*
 runs/*
+old_data/*
+# tsne_results/* # small dir
