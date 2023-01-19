@@ -66,13 +66,21 @@ class MixStyleLayer(nn.Module):
             perm = torch.randperm(B)
 
         elif self.mix == 'crossdomain':
-            # split into two halves and swap the order
-            perm = torch.arange(B - 1, -1, -1) # inverse index
-            perm_b, perm_a = perm.chunk(2)
-            perm_b = perm_b[torch.randperm(B // 2)]
-            perm_a = perm_a[torch.randperm(B // 2)]
-            perm = torch.cat([perm_b, perm_a], 0)
+            ## Perm for original crossdomain with num_domains == 2
+            # # split into two halves and swap the order
+            # perm = torch.arange(B - 1, -1, -1) # inverse index
+            # perm_b, perm_a = perm.chunk(2)
+            # perm_b = perm_b[torch.randperm(B // 2)]
+            # perm_a = perm_a[torch.randperm(B // 2)]
+            # perm = torch.cat([perm_b, perm_a], 0) ## changes [a, b] to [b, a]
 
+            ## Perm for domainbed+mixstyle crossdomain with num_domains == 3
+            perm = torch.arange(B - 1, -1, -1) # inverse index
+            perm_c, perm_b, perm_a = perm.chunk(3)
+            perm_c = perm_c[torch.randperm(B // 3)]
+            perm_b = perm_b[torch.randperm(B // 3)]
+            perm_a = perm_a[torch.randperm(B // 3)]
+            perm = torch.cat([perm_b, perm_c, perm_a], 0) ## changes [a, b, c] to [b, c, a]
         else:
             raise NotImplementedError
 
@@ -206,6 +214,7 @@ class MixStyleResNet18(torch.nn.Module):
             print("__"*40)
             print("RESNET 18")
             print("Using MixStyle!")
+            print(f"MixStyle mix: {hparams['mixstyle_mix']}")
             print("__"*40)
             # self.network = torchvision.models.resnet18(pretrained=hparams['pretrained'])
             model = torchvision.models.resnet18(pretrained=hparams['pretrained'])

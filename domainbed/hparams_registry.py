@@ -56,14 +56,14 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('mixstyle_p', 0.5, lambda r: r.choice([0.5]))
         _hparam('mixstyle_alpha', 0.1, lambda r: r.choice([0.1]))
         _hparam('mixstyle_eps', 1e-6, lambda r: r.choice([1e-6]))
-        _hparam('mixstyle_mix', 'random', lambda r: r.choice(['random']))
+        _hparam('mixstyle_mix', 'crossdomain', lambda r: r.choice(['random', 'crossdomain'])) # [random, crossdomain]
 
     elif algorithm == "CLIP_MixStyle":
         # _hparam('resnet18', True, lambda r: True) # Throws assertion error, changed in the default (line 33)
         _hparam('mixstyle_p', 0.5, lambda r: r.choice([0.5]))
         _hparam('mixstyle_alpha', 0.1, lambda r: r.choice([0.1]))
         _hparam('mixstyle_eps', 1e-6, lambda r: r.choice([1e-6]))
-        _hparam('mixstyle_mix', 'random', lambda r: r.choice(['random']))
+        _hparam('mixstyle_mix', 'crossdomain', lambda r: r.choice(['random', 'crossdomain'])) # [random, crossdomain]
 
     elif algorithm == 'Fish':
         _hparam('meta_lr', 0.5, lambda r:r.choice([0.05, 0.1, 0.5]))
